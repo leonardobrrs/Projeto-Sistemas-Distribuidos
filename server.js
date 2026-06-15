@@ -3,9 +3,10 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('redis'); 
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || (process.argv[2] ? parseInt(process.argv[2]) : 3000);
-const NODE_ID = process.env.NODE_ID || Math.floor(1000 + Math.random() * 9000).toString();
+const NODE_ID = process.env.NODE_ID || crypto.randomBytes(2).toString('hex');
 
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
