@@ -1,0 +1,24 @@
+# Dependências
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ficheiros de ambiente (Variáveis de ambiente / Segredos)
+.env
+.env.test
+
+# Ficheiros do Sistema Operativo (Windows / macOS)
+.DS_Store
+Thumbs.db
+
+# Ficheiros de editores de código (opcional, mas recomendado)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
