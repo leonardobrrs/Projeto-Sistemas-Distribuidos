@@ -1,0 +1,12 @@
+{
+  "name": "websocket-demo",
+  "version": "1.0.0",
+  "description": "Demo acadêmico: WebSockets com Node.js — Sistemas Distribuídos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.1"
+  }
+}
