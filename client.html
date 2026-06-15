@@ -362,7 +362,9 @@ let myName = null;
 let sentCount = 0;
 let recvCount = 0;
 let pingStart = 0;
-const WS_URL = `ws://${location.host}`;
+
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${wsProtocol}//${location.host}`;
 
 const stateNames = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
 
