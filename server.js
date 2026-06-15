@@ -5,7 +5,6 @@ const path = require('path');
 const { createClient } = require('redis'); 
 
 const PORT = process.env.PORT || (process.argv[2] ? parseInt(process.argv[2]) : 3000);
-
 const NODE_ID = process.env.NODE_ID || Math.floor(1000 + Math.random() * 9000).toString();
 
 const server = http.createServer((req, res) => {
@@ -29,7 +28,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 
 const clients = new Map();
-let currentNodeName = `Usuário ${NODE_ID}`;
+let clientCounter = 0;
 const globalUsersByNode = new Map();
 const nodeLastSeen = new Map(); 
 
@@ -92,20 +91,19 @@ Promise.all([pub.connect(), sub.connect()]).then(() => {
     if (data.type === 'node_dead') {
       console.log(`[AVISO] O nó ${data.nodeId} foi desligado corretamente.`);
       
-      let disconnectedUserName = `Usuário ${data.nodeId}`;
-      const usersOnNode = globalUsersByNode.get(data.nodeId);
-      if (usersOnNode && usersOnNode.length > 0) {
-        disconnectedUserName = usersOnNode[0].name;
-      }
+      const usersOnNode = globalUsersByNode.get(data.nodeId) || [];
+      const dropCount = usersOnNode.length;
 
       globalUsersByNode.delete(data.nodeId);
       nodeLastSeen.delete(data.nodeId);
       
-      broadcastAll({ 
-        type: 'user_left', 
-        message: `${disconnectedUserName} foi desconectado.`, 
-        users: getGlobalUsers() 
-      });
+      if (dropCount > 0) {
+        broadcastAll({ 
+          type: 'user_left', 
+          message: `Servidor encerrado. ${dropCount} usuário(s) desconectado(s).`, 
+          users: getGlobalUsers() 
+        });
+      }
       return;
     }
     
@@ -149,17 +147,13 @@ function broadcastAll(data) {
 }
 
 wss.on('connection', (ws) => {
-  if (clients.size >= 1) {
-    console.log(`[BLOQUEIO] Aba extra rejeitada. O nó ${NODE_ID} já está em uso.`);
-    ws.close();
-    return;
-  }
-
-  const clientId = NODE_ID;
-  const clientName = currentNodeName;
+  clientCounter++;
+  
+  const clientId = `${NODE_ID}-${clientCounter}`;
+  const clientName = `Usuário ${clientId}`;
 
   clients.set(ws, { id: clientId, name: clientName });
-  console.log(`[CONEXÃO] ${clientName} conectado.`);
+  console.log(`[CONEXÃO] ${clientName} conectado. Total local: ${clients.size}`);
 
   ws.send(JSON.stringify({
     type: 'welcome',
@@ -204,8 +198,7 @@ wss.on('connection', (ws) => {
     } else if (data.type === 'rename') {
       const oldName = senderInfo.name;
       
-      currentNodeName = data.name || senderInfo.name;
-      senderInfo.name = currentNodeName;
+      senderInfo.name = data.name || senderInfo.name;
       clients.set(ws, senderInfo);
       
       pub.publish('chat_global', JSON.stringify({
@@ -214,8 +207,8 @@ wss.on('connection', (ws) => {
         localUsers: getConnectedUsers(),
         id: senderInfo.id,
         oldName,
-        newName: currentNodeName,
-        message: `${oldName} agora se chama ${currentNodeName}.`
+        newName: senderInfo.name,
+        message: `${oldName} agora se chama ${senderInfo.name}.`
       }));
 
     } else if (data.type === 'ping') {
@@ -228,7 +221,7 @@ wss.on('connection', (ws) => {
     if (!info) return;
     
     clients.delete(ws);
-    console.log(`[DESCONEXÃO] ${info.name}. O nó ${NODE_ID} está livre novamente.`);
+    console.log(`[DESCONEXÃO] ${info.name}. Total local: ${clients.size}`);
     
     pub.publish('chat_global', JSON.stringify({
       type: 'user_left',
@@ -258,26 +251,25 @@ setInterval(() => {
     if (now - lastTime > 15000) {
       console.log(`[FALHA DETECTADA] Nó ${nodeId} não responde. Removendo seus utilizadores...`);
       
-      let disconnectedUserName = `Usuário ${nodeId}`;
-      const usersOnNode = globalUsersByNode.get(nodeId);
-      if (usersOnNode && usersOnNode.length > 0) {
-        disconnectedUserName = usersOnNode[0].name;
-      }
+      const usersOnNode = globalUsersByNode.get(nodeId) || [];
+      const dropCount = usersOnNode.length;
 
       globalUsersByNode.delete(nodeId);
       nodeLastSeen.delete(nodeId);
       
-      broadcastAll({
-        type: 'user_left', 
-        message: `${disconnectedUserName} foi desconectado (Timeout).`, 
-        users: getGlobalUsers()
-      });
+      if (dropCount > 0) {
+        broadcastAll({
+          type: 'user_left', 
+          message: `O servidor ${nodeId} caiu (Timeout). ${dropCount} usuário(s) desconectado(s).`, 
+          users: getGlobalUsers()
+        });
+      }
     }
   });
 }, 5000);
 
 process.on('SIGINT', async () => {
-  console.log(`\n[SISTEMA] Encerrando o nó ${NODE_ID}...`);
+  console.log(`\n[SISTEMA] Encerrando o nó ${NODE_ID} graciosamente...`);
   try {
     await pub.publish('chat_global', JSON.stringify({
       type: 'node_dead',
