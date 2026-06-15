@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { createClient } = require('redis'); 
 
-const PORT = process.argv[2] ? parseInt(process.argv[2]) : 3000;
+const PORT = process.env.PORT || (process.argv[2] ? parseInt(process.argv[2]) : 3000);
 
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
@@ -49,8 +49,8 @@ function getGlobalUsers() {
   return allUsers;
 }
 
-const pub = createClient();
-const sub = createClient();
+const pub = createClient({ url: process.env.REDIS_URL });
+const sub = createClient({ url: process.env.REDIS_URL });
 
 pub.on('error', (err) => console.error('Erro no Redis Pub:', err));
 sub.on('error', (err) => console.error('Erro no Redis Sub:', err));
