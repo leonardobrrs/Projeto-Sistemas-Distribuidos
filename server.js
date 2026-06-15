@@ -6,6 +6,8 @@ const { createClient } = require('redis');
 
 const PORT = process.env.PORT || (process.argv[2] ? parseInt(process.argv[2]) : 3000);
 
+const NODE_ID = process.env.NODE_ID || Math.floor(1000 + Math.random() * 9000).toString();
+
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     const filePath = path.join(__dirname, 'client.html');
@@ -27,7 +29,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 
 const clients = new Map();
-let currentNodeName = `Usuário ${PORT}`;
+let currentNodeName = `Usuário ${NODE_ID}`;
 const globalUsersByNode = new Map();
 const nodeLastSeen = new Map(); 
 
@@ -42,7 +44,7 @@ function getConnectedUsers() {
 function getGlobalUsers() {
   let allUsers = getConnectedUsers();
   globalUsersByNode.forEach((users, nodeId) => {
-    if (nodeId !== PORT) {
+    if (nodeId !== NODE_ID) {
       allUsers = allUsers.concat(users);
     }
   });
@@ -56,26 +58,26 @@ pub.on('error', (err) => console.error('Erro no Redis Pub:', err));
 sub.on('error', (err) => console.error('Erro no Redis Sub:', err));
 
 Promise.all([pub.connect(), sub.connect()]).then(() => {
-  console.log('🔗 Conectado ao Message Broker (Redis)');
+  console.log(`🔗 Conectado ao Message Broker (Redis) - Identidade do Nó: ${NODE_ID}`);
   
   pub.publish('chat_global', JSON.stringify({
     type: 'sync_request',
-    nodeId: PORT
+    nodeId: NODE_ID
   }));
   
   sub.subscribe('chat_global', (message) => {
     const data = JSON.parse(message);
     
-    if (data.type === 'sync_request' && data.nodeId !== PORT) {
+    if (data.type === 'sync_request' && data.nodeId !== NODE_ID) {
       pub.publish('chat_global', JSON.stringify({
         type: 'sync_response',
-        nodeId: PORT,
+        nodeId: NODE_ID,
         localUsers: getConnectedUsers()
       }));
       return;
     }
 
-    if (data.type === 'sync_response' && data.nodeId !== PORT) {
+    if (data.type === 'sync_response' && data.nodeId !== NODE_ID) {
       globalUsersByNode.set(data.nodeId, data.localUsers);
       nodeLastSeen.set(data.nodeId, Date.now());
       broadcastAll({ type: 'update_user_list', users: getGlobalUsers() });
@@ -101,7 +103,7 @@ Promise.all([pub.connect(), sub.connect()]).then(() => {
       
       broadcastAll({ 
         type: 'user_left', 
-        message: `${disconnectedUserName} foi desconectado.`,
+        message: `${disconnectedUserName} foi desconectado.`, 
         users: getGlobalUsers() 
       });
       return;
@@ -120,7 +122,7 @@ Promise.all([pub.connect(), sub.connect()]).then(() => {
     delete data.excludeNode;
     delete data.excludeId;
 
-    if (excludeNode === PORT && excludeId) {
+    if (excludeNode === NODE_ID && excludeId) {
       broadcast(data, excludeId);
     } else {
       broadcastAll(data);
@@ -148,12 +150,12 @@ function broadcastAll(data) {
 
 wss.on('connection', (ws) => {
   if (clients.size >= 1) {
-    console.log(`[BLOQUEIO] Aba extra rejeitada. A porta ${PORT} já está em uso.`);
+    console.log(`[BLOQUEIO] Aba extra rejeitada. O nó ${NODE_ID} já está em uso.`);
     ws.close();
     return;
   }
 
-  const clientId = PORT;
+  const clientId = NODE_ID;
   const clientName = currentNodeName;
 
   clients.set(ws, { id: clientId, name: clientName });
@@ -169,9 +171,9 @@ wss.on('connection', (ws) => {
 
   pub.publish('chat_global', JSON.stringify({
     type: 'user_joined',
-    nodeId: PORT,
+    nodeId: NODE_ID,
     localUsers: getConnectedUsers(),
-    excludeNode: PORT,     
+    excludeNode: NODE_ID,     
     excludeId: clientId, 
     id: clientId,
     name: clientName,
@@ -191,7 +193,7 @@ wss.on('connection', (ws) => {
     if (data.type === 'chat') {
       pub.publish('chat_global', JSON.stringify({
         type: 'chat',
-        nodeId: PORT,
+        nodeId: NODE_ID,
         localUsers: getConnectedUsers(),
         id: senderInfo.id,
         name: senderInfo.name,
@@ -208,7 +210,7 @@ wss.on('connection', (ws) => {
       
       pub.publish('chat_global', JSON.stringify({
         type: 'rename',
-        nodeId: PORT,
+        nodeId: NODE_ID,
         localUsers: getConnectedUsers(),
         id: senderInfo.id,
         oldName,
@@ -226,11 +228,11 @@ wss.on('connection', (ws) => {
     if (!info) return;
     
     clients.delete(ws);
-    console.log(`[DESCONEXÃO] ${info.name}. A porta ${PORT} está livre novamente.`);
+    console.log(`[DESCONEXÃO] ${info.name}. O nó ${NODE_ID} está livre novamente.`);
     
     pub.publish('chat_global', JSON.stringify({
       type: 'user_left',
-      nodeId: PORT,
+      nodeId: NODE_ID,
       localUsers: getConnectedUsers(), 
       id: info.id,
       name: info.name,
@@ -246,7 +248,7 @@ wss.on('connection', (ws) => {
 setInterval(() => {
   pub.publish('chat_global', JSON.stringify({
     type: 'heartbeat',
-    nodeId: PORT
+    nodeId: NODE_ID
   }));
 }, 5000);
 
@@ -267,7 +269,7 @@ setInterval(() => {
       
       broadcastAll({
         type: 'user_left', 
-        message: `${disconnectedUserName} foi desconectado.`,
+        message: `${disconnectedUserName} foi desconectado (Timeout).`, 
         users: getGlobalUsers()
       });
     }
@@ -275,11 +277,11 @@ setInterval(() => {
 }, 5000);
 
 process.on('SIGINT', async () => {
-  console.log(`\n[SISTEMA] Encerrando o nó ${PORT}...`);
+  console.log(`\n[SISTEMA] Encerrando o nó ${NODE_ID}...`);
   try {
     await pub.publish('chat_global', JSON.stringify({
       type: 'node_dead',
-      nodeId: PORT
+      nodeId: NODE_ID
     }));
     setTimeout(() => {
       process.exit(0);
@@ -292,7 +294,7 @@ process.on('SIGINT', async () => {
 server.listen(PORT, () => {
   console.log(`\n======================================`);
   console.log(`  Servidor WebSocket rodando!`);
-  console.log(`  HTTP:      http://localhost:${PORT}`);
-  console.log(`  WebSocket: ws://localhost:${PORT}`);
+  console.log(`  Porta Física: ${PORT}`);
+  console.log(`  Identidade (Nó): ${NODE_ID}`);
   console.log(`======================================\n`);
 });
